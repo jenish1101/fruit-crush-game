@@ -256,3 +256,30 @@ html {
 .fc-cloud-drift-slow {
   animation: fcCloudDrift 42s ease-in-out infinite reverse;
 }
+
+/* First-open splash */
+.fc-splash {
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 30%, #fff7e8 0%, transparent 55%),
+    linear-gradient(165deg, #ffe8d2 0%, #ffd9c2 45%, #ffc9a8 100%);
+  opacity: 1;
+  transition: opacity 0.45s ease;
+}
+.fc-splash-out {
+  opacity: 0;
+  pointer-events: none;
+}
+.fc-splash-glow {
+  background:
+    radial-gradient(circle at 20% 80%, rgba(255, 122, 138, 0.22), transparent 40%),
+    radial-gradient(circle at 85% 20%, rgba(255, 210, 63, 0.28), transparent 35%);
+}
+@keyframes fcSplashBar {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.fc-splash-bar-fill {
+  width: 55%;
+  animation: fcSplashBar 1.1s ease-in-out infinite;
+}
+

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Particles, { useParticles, type Burst } from './Particles';
 import LevelMap from './LevelMap';
 import Sky from './Sky';
+import { usePwaInstall } from './usePwaInstall';
 import { isMuted, setMuted, sfx } from './sound';
 import {
   LEVELS,
@@ -68,6 +69,7 @@ export default function App() {
   const [earned, setEarned] = useState(0);
   const [msg, setMsg] = useState<{ id: number; text: string } | null>(null);
   const [muted, setMutedState] = useState(isMuted());
+  const { canInstall, install, hint, dismissHint } = usePwaInstall();
 
   // Synchronized state refs to prevent any closure bugs or pending freezes
   const busy = useRef(false);
@@ -520,54 +522,130 @@ export default function App() {
 
   if (phase === 'menu')
     return (
-      <div className={`${shell} flex items-center justify-center px-4 py-4`}>
+      <div className={`${shell} flex flex-col items-center px-4 pb-4 pt-[max(0.75rem,env(safe-area-inset-top))]`}>
         <Sky />
-        <div className="fc-scroll relative z-10 max-h-[94dvh] w-full max-w-sm space-y-4 overflow-x-hidden overflow-y-auto rounded-3xl bg-white/70 p-5 text-center shadow-xl shadow-orange-200/40 ring-1 ring-white/80 backdrop-blur-md sm:space-y-5 sm:p-6">
-          <div className="text-5xl fc-bounce">🍓🍋🍇</div>
-          <h1 className="bg-gradient-to-r from-[#e07a5f] via-[#ff7a8a] to-[#f2b705] bg-clip-text text-4xl font-black tracking-tight text-transparent sm:text-5xl">
-            FRUIT CRUSH
-          </h1>
-          <p className="text-sm text-[#7a4e32]/80">
-            Match 4 for a <b>💣 bomb</b>, match 5+ for a <b>🌈 mega bomb</b>. Swap bombs to blow up
-            the board — chains detonate chains!
-          </p>
-          <div className="flex flex-col gap-2">
+        {canInstall && (
+          <div className="relative z-20 mb-3 flex w-full max-w-sm justify-end">
             <button
+              type="button"
               onClick={() => {
                 sfx.unlock();
-                setPhase('map');
+                void install();
               }}
-              className="rounded-2xl bg-gradient-to-r from-[#ff7a8a] to-[#ffd23f] px-7 py-4 text-lg font-black text-[#4a2c1a] shadow-lg shadow-orange-300/50 transition hover:brightness-110 active:scale-95 cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-full bg-[#4a2c1a] px-3.5 py-2 text-xs font-bold tracking-wide text-[#fff7e8] shadow-lg shadow-orange-900/20 transition hover:brightness-110 active:scale-95 cursor-pointer"
             >
-              Play Adventure
-            </button>
-            <button
-              onClick={() => {
-                sfx.unlock();
-                startEndless();
-              }}
-              className="rounded-2xl bg-white/80 px-7 py-3 font-black text-[#6b3f24] ring-1 ring-[#e8c9a8] transition hover:bg-white active:scale-95 cursor-pointer"
-            >
-              Endless Time Attack
+              <svg
+                aria-hidden
+                viewBox="0 0 24 24"
+                className="h-3.5 w-3.5 fill-none stroke-current stroke-[2.5]"
+              >
+                <path d="M12 3v12" strokeLinecap="round" />
+                <path d="M8 11l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M5 19h14" strokeLinecap="round" />
+              </svg>
+              Install App
             </button>
           </div>
-          {scores.length > 0 && (
-            <div className="rounded-2xl bg-white/70 p-3 text-left ring-1 ring-[#efd5b8]">
-              <div className="mb-1 text-[10px] font-bold tracking-widest text-[#b07a4a]">
-                ENDLESS HIGH SCORES
-              </div>
-              <ol className="space-y-0.5 text-sm">
-                {scores.slice(0, 5).map((s, i) => (
-                  <li key={i} className="flex justify-between tabular-nums text-[#6b3f24]">
-                    <span>
-                      {['🥇', '🥈', '🥉', '4.', '5.'][i]} {s.date}
-                    </span>
-                    <span className="font-bold">{s.score}</span>
-                  </li>
-                ))}
-              </ol>
+        )}
+        {hint === 'ios' && (
+          <div
+            className="relative z-30 mb-3 w-full max-w-sm rounded-2xl bg-white/90 p-3 text-left text-sm text-[#4a2c1a] shadow-lg ring-1 ring-[#efd5b8] backdrop-blur"
+            role="dialog"
+            aria-label="How to install on iPhone"
+          >
+            <div className="mb-1 flex items-start justify-between gap-2">
+              <p className="font-bold">Install on iPhone / iPad</p>
+              <button
+                type="button"
+                onClick={dismissHint}
+                className="rounded-lg px-2 py-0.5 text-xs font-bold text-[#9a6b45] hover:bg-[#ffe8d2] cursor-pointer"
+              >
+                Close
+              </button>
             </div>
-          )}
+            <ol className="list-decimal space-y-1 pl-4 text-[#6b3f24]">
+              <li>
+                Tap <span className="font-semibold">Share</span> in Safari
+              </li>
+              <li>
+                Choose <span className="font-semibold">Add to Home Screen</span>
+              </li>
+              <li>Open Fruit Crush from your home screen</li>
+            </ol>
+          </div>
+        )}
+        {hint === 'manual' && (
+          <div
+            className="relative z-30 mb-3 w-full max-w-sm rounded-2xl bg-white/90 p-3 text-left text-sm text-[#4a2c1a] shadow-lg ring-1 ring-[#efd5b8] backdrop-blur"
+            role="dialog"
+            aria-label="How to install"
+          >
+            <div className="mb-1 flex items-start justify-between gap-2">
+              <p className="font-bold">Install this game</p>
+              <button
+                type="button"
+                onClick={dismissHint}
+                className="rounded-lg px-2 py-0.5 text-xs font-bold text-[#9a6b45] hover:bg-[#ffe8d2] cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+            <p className="text-[#6b3f24]">
+              In Chrome or Edge, open the browser menu and tap{' '}
+              <span className="font-semibold">Install app</span> /{' '}
+              <span className="font-semibold">Add to Home screen</span>. Works best over HTTPS on
+              your phone.
+            </p>
+          </div>
+        )}
+        <div className="fc-scroll relative z-10 flex min-h-0 w-full max-w-sm flex-1 flex-col justify-center">
+          <div className="max-h-[min(94dvh,100%)] space-y-4 overflow-x-hidden overflow-y-auto rounded-3xl bg-white/70 p-5 text-center shadow-xl shadow-orange-200/40 ring-1 ring-white/80 backdrop-blur-md sm:space-y-5 sm:p-6">
+            <div className="text-5xl fc-bounce">🍓🍋🍇</div>
+            <h1 className="bg-gradient-to-r from-[#e07a5f] via-[#ff7a8a] to-[#f2b705] bg-clip-text text-4xl font-black tracking-tight text-transparent sm:text-5xl">
+              FRUIT CRUSH
+            </h1>
+            <p className="text-sm text-[#7a4e32]/80">
+              Match 4 for a <b>💣 bomb</b>, match 5+ for a <b>🌈 mega bomb</b>. Swap bombs to blow up
+              the board — chains detonate chains!
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => {
+                  sfx.unlock();
+                  setPhase('map');
+                }}
+                className="rounded-2xl bg-gradient-to-r from-[#ff7a8a] to-[#ffd23f] px-7 py-4 text-lg font-black text-[#4a2c1a] shadow-lg shadow-orange-300/50 transition hover:brightness-110 active:scale-95 cursor-pointer"
+              >
+                Play Adventure
+              </button>
+              <button
+                onClick={() => {
+                  sfx.unlock();
+                  startEndless();
+                }}
+                className="rounded-2xl bg-white/80 px-7 py-3 font-black text-[#6b3f24] ring-1 ring-[#e8c9a8] transition hover:bg-white active:scale-95 cursor-pointer"
+              >
+                Endless Time Attack
+              </button>
+            </div>
+            {scores.length > 0 && (
+              <div className="rounded-2xl bg-white/70 p-3 text-left ring-1 ring-[#efd5b8]">
+                <div className="mb-1 text-[10px] font-bold tracking-widest text-[#b07a4a]">
+                  ENDLESS HIGH SCORES
+                </div>
+                <ol className="space-y-0.5 text-sm">
+                  {scores.slice(0, 5).map((s, i) => (
+                    <li key={i} className="flex justify-between tabular-nums text-[#6b3f24]">
+                      <span>
+                        {['🥇', '🥈', '🥉', '4.', '5.'][i]} {s.date}
+                      </span>
+                      <span className="font-bold">{s.score}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );
