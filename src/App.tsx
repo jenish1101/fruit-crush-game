@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Particles, { useParticles, type Burst } from './Particles';
 import LevelMap from './LevelMap';
 import Sky from './Sky';
+import { isMuted, setMuted, sfx } from './sound';
 import {
   LEVELS,
   loadProgress,
@@ -14,8 +15,10 @@ import {
   FRUITS,
   FRUIT_COLORS,
   SIZE,
-  collapse,
+  blastCells,
+  collapseBoard,
   findMatches,
+  findRuns,
   hasMove,
   idx,
   isAdjacent,
@@ -24,6 +27,7 @@ import {
   saveScore,
   swapped,
   type Cell,
+  type Run,
   type Score,
 } from './game';
 
@@ -39,6 +43,8 @@ function rnd(a: number) {
   return (Math.random() * 2 - 1) * a;
 }
 
+const ZERO_SP = () => new Array(SIZE * SIZE).fill(0);
+
 export default function App() {
   const [phase, setPhase] = useState<Phase>('menu');
   const [mode, setMode] = useState<Mode>('level');
@@ -46,6 +52,7 @@ export default function App() {
   const [progress, setProgress] = useState<Progress>(() => loadProgress());
 
   const [board, setBoard] = useState<Cell[]>(() => makeBoard(4));
+  const [specials, setSpecials] = useState<number[]>(ZERO_SP); // 0 none, 1 bomb, 2 mega
   const [popping, setPopping] = useState<Set<number>>(new Set());
   const [fall, setFall] = useState<number[]>(() => new Array(SIZE * SIZE).fill(0));
   const [sel, setSel] = useState<number | null>(null);
@@ -59,9 +66,13 @@ export default function App() {
   const [floats, setFloats] = useState<{ id: number; x: number; y: number; text: string }[]>([]);
   const [wrong, setWrong] = useState<number | null>(null);
   const [earned, setEarned] = useState(0);
+  const [msg, setMsg] = useState<{ id: number; text: string } | null>(null);
+  const [muted, setMutedState] = useState(isMuted());
 
   // Synchronized state refs to prevent any closure bugs or pending freezes
   const busy = useRef(false);
+  const boardRef = useRef<Cell[]>(board);
+  const specialsRef = useRef<number[]>(specials);
   const scoreRef = useRef(0);
   const movesRef = useRef(10);
   const phaseRef = useRef<Phase>(phase);
@@ -70,12 +81,15 @@ export default function App() {
   const gridRef = useRef<HTMLDivElement>(null);
   const partApi = useParticles();
   const floatId = useRef(0);
+  const msgId = useRef(0);
   const down = useRef<{ i: number; x: number; y: number } | null>(null);
 
   // Keep references in sync with latest render
   phaseRef.current = phase;
   modeRef.current = mode;
   levelRef.current = level;
+  boardRef.current = board;
+  specialsRef.current = specials;
 
   const kinds = mode === 'level' ? level.kinds : 6;
 
@@ -85,6 +99,19 @@ export default function App() {
     const w = el.clientWidth / SIZE;
     return { x: (i % SIZE) * w + w / 2, y: Math.floor(i / SIZE) * w + w / 2 };
   }, []);
+
+  const showMsg = useCallback((text: string) => {
+    const id = ++msgId.current;
+    setMsg({ id, text });
+    setTimeout(() => setMsg((m) => (m && m.id === id ? null : m)), 1000);
+  }, []);
+
+  const toggleMute = () => {
+    const next = !muted;
+    setMuted(next);
+    setMutedState(next);
+    if (!next) sfx.unlock();
+  };
 
   // Endless timer
   useEffect(() => {
@@ -97,6 +124,7 @@ export default function App() {
     if (phase === 'playing' && mode === 'endless' && time <= 0) {
       setPhase('over');
       setScores(saveScore(Math.round(scoreRef.current)));
+      sfx.lose();
     }
   }, [time, phase, mode]);
 
@@ -115,6 +143,8 @@ export default function App() {
     const st = starsFor(curLevel, finalScore);
     setEarned(st);
     if (st > 0) {
+      sfx.win();
+      for (let i = 0; i < st; i++) setTimeout(() => sfx.star(i), 350 + i * 220);
       setProgress((prev) => {
         const next = {
           stars: { ...prev.stars, [curLevel.n]: Math.max(prev.stars[curLevel.n] || 0, st) },
@@ -124,55 +154,147 @@ export default function App() {
       });
       setPhase('won');
     } else {
+      sfx.lose();
       setPhase('over');
     }
   }, []);
 
+  /** Chain-detonate every bomb inside `cleared`; mutates sp; returns blast stats */
+  const detonate = (cleared: Set<number>, sp: number[]) => {
+    let bombs = 0;
+    let megas = 0;
+    const queue = [...cleared].filter((i) => sp[i] > 0);
+    while (queue.length) {
+      const i = queue.pop()!;
+      const type = sp[i];
+      sp[i] = 0;
+      if (type >= 2) megas++;
+      else bombs++;
+      for (const t of blastCells(i, type)) {
+        if (!cleared.has(t)) {
+          cleared.add(t);
+          if (sp[t] > 0) queue.push(t);
+        }
+      }
+    }
+    return { bombs, megas };
+  };
+
   const resolve = useCallback(
-    async (start: Cell[]) => {
+    async (start: Cell[], startSp: number[], swapA?: number, swapC?: number, ignite: number[] = []) => {
       let b = start;
+      let sp = startSp.slice();
       let chain = 0;
       let total = 0;
+      let firstPass = true;
+
       while (true) {
-        const m = findMatches(b);
-        if (!m.size) break;
+        let cleared: Set<number>;
+        let runs: Run[] = [];
+        let createdBomb = false;
+        let createdMega = false;
+
+        if (firstPass && ignite.length) {
+          // A bomb was swapped directly — detonate it immediately
+          cleared = new Set(ignite);
+          firstPass = false;
+        } else {
+          runs = findRuns(b);
+          if (!runs.length) break;
+          firstPass = false;
+          cleared = new Set<number>();
+          runs.forEach((r) => r.cells.forEach((i) => cleared.add(i)));
+
+          // Forge specials: 5+ → mega bomb, 4 → bomb (prefer the swapped cell)
+          const pickCell = (cells: number[]) => {
+            if (swapA !== undefined && cells.includes(swapA)) return swapA;
+            if (swapC !== undefined && cells.includes(swapC)) return swapC;
+            return cells[Math.floor(cells.length / 2)];
+          };
+          const sorted = runs.slice().sort((x, y) => y.cells.length - x.cells.length);
+          for (const run of sorted) {
+            if (run.cells.length >= 5) {
+              const cell = pickCell(run.cells);
+              sp[cell] = 2;
+              cleared.delete(cell);
+              createdMega = true;
+            } else if (run.cells.length === 4) {
+              const cell = pickCell(run.cells);
+              if (sp[cell] === 0) {
+                sp[cell] = 1;
+                cleared.delete(cell);
+                createdBomb = true;
+              }
+            }
+          }
+        }
+
+        // Bombs caught in the blast go off too — chain reaction!
+        const { bombs, megas } = detonate(cleared, sp);
+
         chain++;
         setCombo(chain);
-        const pts = Math.round(m.size * 10 * (1 + (chain - 1) * 0.5));
+        const pts = Math.round(cleared.size * 10 * (1 + (chain - 1) * 0.5));
         total += pts;
         scoreRef.current += pts;
         setScore(scoreRef.current);
 
         if (modeRef.current === 'endless') {
-          setTime((t) => Math.min(START_TIME, t + m.size * 0.35));
+          setTime((t) => Math.min(START_TIME, t + cleared.size * 0.35));
         }
 
+        // juicy feedback
         const bursts: Burst[] = [];
-        for (const i of m) {
+        for (const i of cleared) {
           const { x, y } = cellRect(i);
-          bursts.push({ x, y, color: FRUIT_COLORS[b[i]] });
+          bursts.push({ x, y, color: b[i] >= 0 ? FRUIT_COLORS[b[i]] : '#ff922b' });
         }
         partApi.current?.(bursts);
-        addFloat([...m][0], `+${pts}${chain > 1 ? ` x${chain}` : ''}`);
-        setShake(Math.min(10, 3 + m.size + chain * 1.5));
-        setTimeout(() => setShake(0), 160);
+        addFloat([...cleared][0], `+${pts}${chain > 1 ? ` x${chain}` : ''}`);
 
-        // Fast, satisfying pop & collapse animations
-        setPopping(new Set(m));
-        await sleep(100);
+        if (bombs + megas > 0) {
+          if (megas > 0) sfx.mega();
+          else sfx.bomb();
+          setShake(Math.min(18, 8 + (bombs + megas) * 3));
+        } else {
+          sfx.pop(chain);
+          setShake(Math.min(10, 3 + cleared.size + chain * 1.5));
+        }
+        setTimeout(() => setShake(0), 200);
 
-        const { board: nb, fall: nf } = collapse(b, m, kinds);
-        b = nb;
-        setPopping(new Set());
-        setFall(nf);
-        setBoard(b);
+        // hype messages
+        let text: string | null = null;
+        if (createdMega) text = 'MEGA BLAST! 🌈';
+        else if (createdBomb) text = 'SWEET! 💣';
+        else if (bombs + megas >= 3) text = 'CHAIN REACTION! 💥';
+        else if (megas > 0) text = 'MEGA CHAIN! 🌈';
+        else if (bombs > 0) text = 'BOOM! 💥';
+        else if (runs.length >= 3) text = 'TRIPLE TREAT! 🍭';
+        else if (runs.length === 2) text = 'DOUBLE JUICE! 🧃';
+        else if (chain >= 4) text = 'SUGAR RUSH! 🍬';
+        else if (chain === 3) text = 'DELICIOUS! 😋';
+        else if (chain === 2) text = 'TASTY! 🍓';
+        if (text) showMsg(text);
+
+        setPopping(new Set(cleared));
         await sleep(110);
+
+        const res = collapseBoard(b, sp, cleared, kinds);
+        b = res.board;
+        sp = res.specials;
+        setPopping(new Set());
+        setFall(res.fall);
+        setBoard(b);
+        setSpecials(sp);
+        await sleep(120);
         setFall(new Array(SIZE * SIZE).fill(0));
       }
 
       if (!hasMove(b)) {
         b = makeBoard(kinds);
+        sp = ZERO_SP();
         setBoard(b);
+        setSpecials(sp);
         addFloat(idx(4, 4), 'shuffle!');
         await sleep(120);
       }
@@ -180,7 +302,7 @@ export default function App() {
       setCombo(0);
       return total;
     },
-    [cellRect, partApi, kinds, addFloat],
+    [cellRect, partApi, kinds, addFloat, showMsg],
   );
 
   const tryMove = useCallback(
@@ -194,28 +316,46 @@ export default function App() {
       setSel(null);
 
       try {
-        const nb = swapped(board, a, c);
-        if (findMatches(nb).size === 0) {
+        const curBoard = boardRef.current;
+        const curSp = specialsRef.current;
+        const nb = swapped(curBoard, a, c);
+        const nsp = curSp.slice();
+        [nsp[a], nsp[c]] = [nsp[c], nsp[a]];
+
+        // Swapping a bomb always detonates it
+        const ignite: number[] = [];
+        if (curSp[a] > 0) ignite.push(c); // bomb moved to c
+        if (curSp[c] > 0) ignite.push(a); // bomb moved to a
+
+        if (!ignite.length && findMatches(nb).size === 0) {
+          sfx.bad();
           setWrong(c);
           setBoard(nb);
+          setSpecials(nsp);
           await sleep(110);
-          setBoard(board);
+          setBoard(curBoard);
+          setSpecials(curSp);
           setTimeout(() => setWrong(null), 120);
           return;
         }
 
-        // Valid move
-        setBoard(nb);
-        await sleep(70);
-        await resolve(nb);
-
+        sfx.swap();
         if (modeRef.current === 'level') {
           movesRef.current = Math.max(0, movesRef.current - 1);
           setMoves(movesRef.current);
+        }
+
+        boardRef.current = nb;
+        specialsRef.current = nsp;
+        setBoard(nb);
+        setSpecials(nsp);
+        await sleep(70);
+
+        await resolve(nb, nsp, a, c, ignite);
+
+        if (modeRef.current === 'level') {
           const currentScore = scoreRef.current;
           const currentTarget = levelRef.current.target;
-
-          // Finish level if max stars reached or moves run out
           if (currentScore >= currentTarget * 1.5 || movesRef.current <= 0) {
             await sleep(180);
             finishLevel(currentScore);
@@ -227,7 +367,7 @@ export default function App() {
         busy.current = false;
       }
     },
-    [board, resolve, finishLevel],
+    [resolve, finishLevel],
   );
 
   const pick = useCallback(
@@ -242,6 +382,7 @@ export default function App() {
   );
 
   const onDown = (i: number) => (e: React.PointerEvent) => {
+    sfx.unlock();
     down.current = { i, x: e.clientX, y: e.clientY };
   };
 
@@ -274,6 +415,7 @@ export default function App() {
     setMode('level');
     setLevel(lv);
     setBoard(makeBoard(lv.kinds));
+    setSpecials(ZERO_SP());
     setMoves(lv.moves);
     movesRef.current = lv.moves;
     setScore(0);
@@ -289,6 +431,7 @@ export default function App() {
     busy.current = false;
     setMode('endless');
     setBoard(makeBoard(6));
+    setSpecials(ZERO_SP());
     setScore(0);
     scoreRef.current = 0;
     setCombo(0);
@@ -360,9 +503,7 @@ export default function App() {
   }, [cursor, sel, pick, tryMove, restart, nextLevel]);
 
   const goalPct =
-    mode === 'level'
-      ? Math.min(100, (score / level.target) * 100)
-      : (time / START_TIME) * 100;
+    mode === 'level' ? Math.min(100, (score / level.target) * 100) : (time / START_TIME) * 100;
 
   const shell =
     'relative min-h-[100dvh] w-full max-w-[100vw] overflow-x-hidden font-sans text-[#4a2c1a] select-none';
@@ -379,25 +520,32 @@ export default function App() {
 
   if (phase === 'menu')
     return (
-      <div className={`${shell} flex items-center justify-center px-5`}>
+      <div className={`${shell} flex items-center justify-center px-4 py-4`}>
         <Sky />
-        <div className="fc-scroll relative z-10 max-h-[92dvh] w-full max-w-sm space-y-4 overflow-x-hidden overflow-y-auto rounded-3xl bg-white/70 p-5 text-center shadow-xl shadow-orange-200/40 ring-1 ring-white/80 backdrop-blur-md sm:space-y-5 sm:p-6">
+        <div className="fc-scroll relative z-10 max-h-[94dvh] w-full max-w-sm space-y-4 overflow-x-hidden overflow-y-auto rounded-3xl bg-white/70 p-5 text-center shadow-xl shadow-orange-200/40 ring-1 ring-white/80 backdrop-blur-md sm:space-y-5 sm:p-6">
           <div className="text-5xl fc-bounce">🍓🍋🍇</div>
           <h1 className="bg-gradient-to-r from-[#e07a5f] via-[#ff7a8a] to-[#f2b705] bg-clip-text text-4xl font-black tracking-tight text-transparent sm:text-5xl">
             FRUIT CRUSH
           </h1>
           <p className="text-sm text-[#7a4e32]/80">
-            500 juicy levels across 5 misty chapters. Match 3+, chain cascades, earn stars.
+            Match 4 for a <b>💣 bomb</b>, match 5+ for a <b>🌈 mega bomb</b>. Swap bombs to blow up
+            the board — chains detonate chains!
           </p>
           <div className="flex flex-col gap-2">
             <button
-              onClick={() => setPhase('map')}
+              onClick={() => {
+                sfx.unlock();
+                setPhase('map');
+              }}
               className="rounded-2xl bg-gradient-to-r from-[#ff7a8a] to-[#ffd23f] px-7 py-4 text-lg font-black text-[#4a2c1a] shadow-lg shadow-orange-300/50 transition hover:brightness-110 active:scale-95 cursor-pointer"
             >
               Play Adventure
             </button>
             <button
-              onClick={startEndless}
+              onClick={() => {
+                sfx.unlock();
+                startEndless();
+              }}
               className="rounded-2xl bg-white/80 px-7 py-3 font-black text-[#6b3f24] ring-1 ring-[#e8c9a8] transition hover:bg-white active:scale-95 cursor-pointer"
             >
               Endless Time Attack
@@ -443,12 +591,21 @@ export default function App() {
               {mode === 'level' ? level.name : 'crush to gain time'}
             </div>
           </div>
-          <button
-            onClick={() => setPhase(phase === 'playing' ? 'paused' : 'playing')}
-            className="rounded-xl bg-white/80 px-3 py-2 text-sm font-bold text-[#6b3f24] shadow-sm ring-1 ring-[#efd5b8] backdrop-blur transition hover:bg-white active:scale-95 cursor-pointer"
-          >
-            {phase === 'paused' ? '▶' : '❚❚'}
-          </button>
+          <div className="flex gap-1.5">
+            <button
+              onClick={toggleMute}
+              className="rounded-xl bg-white/80 px-3 py-2 text-sm font-bold text-[#6b3f24] shadow-sm ring-1 ring-[#efd5b8] backdrop-blur transition hover:bg-white active:scale-95 cursor-pointer"
+              title={muted ? 'Unmute' : 'Mute'}
+            >
+              {muted ? '🔇' : '🔊'}
+            </button>
+            <button
+              onClick={() => setPhase(phase === 'playing' ? 'paused' : 'playing')}
+              className="rounded-xl bg-white/80 px-3 py-2 text-sm font-bold text-[#6b3f24] shadow-sm ring-1 ring-[#efd5b8] backdrop-blur transition hover:bg-white active:scale-95 cursor-pointer"
+            >
+              {phase === 'paused' ? '▶' : '❚❚'}
+            </button>
+          </div>
         </header>
 
         <div className="flex items-center gap-3 rounded-2xl bg-white/75 p-3 shadow-sm ring-1 ring-white/90 backdrop-blur">
@@ -503,13 +660,22 @@ export default function App() {
             {board.map((k, i) => {
               const isSel = sel === i;
               const isCur = cursor === i && phase === 'playing';
+              const sp = specials[i];
               return (
                 <div
                   key={i}
                   onPointerDown={onDown(i)}
                   className={`relative flex items-center justify-center rounded-xl transition-colors cursor-pointer ${
-                    isSel ? 'bg-white/30' : isCur ? 'bg-white/10' : 'bg-white/[0.04]'
-                  }`}
+                    sp === 2
+                      ? 'fc-mega-cell'
+                      : sp === 1
+                        ? 'fc-bomb-cell'
+                        : isSel
+                          ? 'bg-[#ffd6a5] ring-2 ring-[#ffb347]'
+                          : isCur
+                            ? 'bg-[#fff1dc]'
+                            : 'bg-[#fff8ef]/80'
+                  } ${isSel && sp === 0 ? 'ring-2 ring-[#ffb347]' : ''}`}
                 >
                   <span
                     className={`block will-change-transform ${popping.has(i) ? 'fc-pop' : ''} ${
@@ -524,6 +690,16 @@ export default function App() {
                   >
                     {FRUITS[k]}
                   </span>
+                  {sp === 1 && (
+                    <span className="pointer-events-none absolute -bottom-0.5 -right-0.5 text-[10px] drop-shadow sm:text-[12px]">
+                      💣
+                    </span>
+                  )}
+                  {sp === 2 && (
+                    <span className="pointer-events-none absolute -bottom-0.5 -right-0.5 text-[11px] drop-shadow sm:text-[13px]">
+                      💥
+                    </span>
+                  )}
                 </div>
               );
             })}
@@ -534,7 +710,7 @@ export default function App() {
           {floats.map((f) => (
             <div
               key={f.id}
-              className="pointer-events-none absolute z-40 -translate-x-1/2 text-lg font-black text-[#ffd23f] drop-shadow-[0_2px_0_rgba(0,0,0,.6)] fc-float"
+              className="pointer-events-none absolute z-40 -translate-x-1/2 text-lg font-black text-[#e07a5f] drop-shadow-[0_2px_0_rgba(255,255,255,.8)] fc-float"
               style={{ left: f.x + 8, top: f.y + 8 }}
             >
               {f.text}
@@ -544,6 +720,17 @@ export default function App() {
           {combo > 1 && (
             <div className="pointer-events-none absolute left-1/2 top-2 z-40 -translate-x-1/2 rounded-full bg-[#ff4d6d] px-4 py-1 text-sm font-black text-white shadow-lg fc-combo">
               COMBO x{combo}
+            </div>
+          )}
+
+          {msg && (
+            <div
+              key={msg.id}
+              className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center"
+            >
+              <div className="fc-msg rounded-full bg-gradient-to-r from-[#ff7a8a] to-[#f2b705] px-6 py-2 text-2xl font-black text-white shadow-xl shadow-orange-400/40 sm:text-3xl">
+                {msg.text}
+              </div>
             </div>
           )}
 
@@ -615,7 +802,7 @@ export default function App() {
         </div>
 
         <p className="px-1 text-center text-[11px] leading-relaxed text-[#9a6b45]">
-          Tap/swipe · Arrows move, Space select, Shift+Arrow swap · P pause · R restart
+          Match 4 → 💣 bomb · Match 5+ → 🌈 mega bomb · Swap bombs to detonate · P pause · R restart
         </p>
       </div>
     </div>

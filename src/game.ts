@@ -116,6 +116,93 @@ export function collapse(b: Cell[], cleared: Set<number>, kinds: number = KINDS)
   return { board: n, fall };
 }
 
+export type Run = { cells: number[]; kind: number };
+
+/** All horizontal + vertical runs of 3+ */
+export function findRuns(b: Cell[]): Run[] {
+  const runs: Run[] = [];
+  for (let r = 0; r < SIZE; r++) {
+    let start = 0;
+    for (let c = 1; c <= SIZE; c++) {
+      if (c < SIZE && b[idx(r, c)] === b[idx(r, start)] && b[idx(r, c)] >= 0) continue;
+      if (c - start >= 3)
+        runs.push({
+          cells: Array.from({ length: c - start }, (_, k) => idx(r, start + k)),
+          kind: b[idx(r, start)],
+        });
+      start = c;
+    }
+  }
+  for (let c = 0; c < SIZE; c++) {
+    let start = 0;
+    for (let r = 1; r <= SIZE; r++) {
+      if (r < SIZE && b[idx(r, c)] === b[idx(start, c)] && b[idx(r, c)] >= 0) continue;
+      if (r - start >= 3)
+        runs.push({
+          cells: Array.from({ length: r - start }, (_, k) => idx(start + k, c)),
+          kind: b[idx(start, c)],
+        });
+      start = r;
+    }
+  }
+  return runs;
+}
+
+/** Cells hit by a bomb: type 1 = 3x3 blast, type 2 (mega) = full row + column */
+export function blastCells(i: number, type: number): number[] {
+  const r = Math.floor(i / SIZE),
+    c = i % SIZE;
+  const out: number[] = [];
+  if (type >= 2) {
+    for (let k = 0; k < SIZE; k++) {
+      out.push(idx(r, k));
+      out.push(idx(k, c));
+    }
+  } else {
+    for (let dr = -1; dr <= 1; dr++)
+      for (let dc = -1; dc <= 1; dc++) {
+        const nr = r + dr,
+          nc = c + dc;
+        if (nr >= 0 && nr < SIZE && nc >= 0 && nc < SIZE) out.push(idx(nr, nc));
+      }
+  }
+  return out;
+}
+
+/** Collapse board AND specials together */
+export function collapseBoard(
+  b: Cell[],
+  sp: number[],
+  cleared: Set<number>,
+  kinds: number = KINDS,
+) {
+  const n = b.slice();
+  const ns = sp.slice();
+  const fall = new Array(SIZE * SIZE).fill(0);
+  for (const i of cleared) {
+    n[i] = -1;
+    ns[i] = 0;
+  }
+  for (let c = 0; c < SIZE; c++) {
+    let write = SIZE - 1;
+    for (let r = SIZE - 1; r >= 0; r--) {
+      const v = n[idx(r, c)];
+      if (v >= 0) {
+        n[idx(write, c)] = v;
+        ns[idx(write, c)] = ns[idx(r, c)];
+        fall[idx(write, c)] = write - r;
+        write--;
+      }
+    }
+    for (let r = write; r >= 0; r--) {
+      n[idx(r, c)] = randKind(kinds);
+      ns[idx(r, c)] = 0;
+      fall[idx(r, c)] = write + 1;
+    }
+  }
+  return { board: n, specials: ns, fall };
+}
+
 export type Score = { score: number; date: string };
 
 const KEY = 'fruitcrush.highscores.v1';
