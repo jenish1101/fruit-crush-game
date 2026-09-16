@@ -1,0 +1,221 @@
+@import "tailwindcss";
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: #ffe8d2;
+  overflow-x: hidden;
+  max-width: 100vw;
+  width: 100%;
+}
+
+img, svg, canvas {
+  max-width: 100%;
+}
+
+body {
+  overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  overflow-x: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Hide horizontal scroll everywhere */
+html {
+  overflow-x: hidden;
+}
+
+/* Belt-and-braces: never show a horizontal scrollbar on any scroller */
+.fc-scroll {
+  overflow-x: hidden !important;
+  scrollbar-width: thin;
+}
+
+/* Pretty vertical scrollbar — peach/gold, not plain white */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #f4a261 #fde8d0;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 0;
+}
+
+*::-webkit-scrollbar:horizontal {
+  height: 0 !important;
+  display: none !important;
+}
+
+*::-webkit-scrollbar-track {
+  background: linear-gradient(180deg, #fff3e0, #fde8d0);
+  border-radius: 999px;
+  margin: 8px 0;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #ffb347, #ff7a8a);
+  border-radius: 999px;
+  border: 2px solid #fde8d0;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #ff9f1c, #ff5d73);
+}
+
+.fc-scroll {
+  overflow-x: hidden !important;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #f4a261 #fde8d0;
+}
+
+.fc-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 0;
+}
+
+.fc-scroll::-webkit-scrollbar-track {
+  background: linear-gradient(180deg, #fff6ea, #f8d9b8);
+  border-radius: 999px;
+  box-shadow: inset 0 0 4px rgba(180, 90, 40, 0.08);
+}
+
+.fc-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #ffc56d, #ff8a9a 60%, #e07a5f);
+  border-radius: 999px;
+  border: 2px solid #fde8d0;
+  box-shadow: 0 1px 4px rgba(180, 80, 40, 0.25);
+}
+
+.fc-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #ffb347, #ff6b81);
+}
+
+/* Fast, smooth fruit gravity fall */
+@keyframes fcFall {
+  from {
+    transform: translateY(var(--fall, -100%));
+    opacity: 0.9;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+[style*="--fall"] {
+  animation-duration: 0.12s;
+  animation-timing-function: cubic-bezier(0.25, 1.25, 0.5, 1);
+}
+
+@keyframes fcPop {
+  0% { transform: scale(1); filter: brightness(1); }
+  40% { transform: scale(1.3) rotate(8deg); filter: brightness(1.3); }
+  100% { transform: scale(0.1); opacity: 0; }
+}
+.fc-pop {
+  animation: fcPop 0.11s ease-in forwards !important;
+}
+
+@keyframes fcWrong {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+.fc-wrong {
+  animation: fcWrong 0.12s ease-in-out !important;
+}
+
+@keyframes fcSel {
+  0%, 100% { transform: scale(1.16); }
+  50% { transform: scale(0.96) rotate(-5deg); }
+}
+.fc-sel {
+  animation: fcSel 0.4s ease-in-out infinite !important;
+}
+
+@keyframes fcFloat {
+  0% { transform: translate(-50%, 0) scale(0.7); opacity: 0; }
+  20% { transform: translate(-50%, -10px) scale(1.15); opacity: 1; }
+  100% { transform: translate(-50%, -40px) scale(1); opacity: 0; }
+}
+.fc-float {
+  animation: fcFloat 0.65s ease-out forwards;
+}
+
+@keyframes fcCombo {
+  0% { transform: translateX(-50%) scale(0.5); opacity: 0; }
+  50% { transform: translateX(-50%) scale(1.12); opacity: 1; }
+  100% { transform: translateX(-50%) scale(1); opacity: 1; }
+}
+.fc-combo {
+  animation: fcCombo 0.24s cubic-bezier(0.2, 1.5, 0.4, 1);
+}
+
+@keyframes fcBounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+.fc-bounce {
+  animation: fcBounce 1.2s ease-in-out infinite;
+}
+
+@keyframes fcHint {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); filter: drop-shadow(0 0 6px #ffd23f); }
+}
+.fc-hint {
+  animation: fcHint 0.8s ease-in-out infinite;
+}
+
+@keyframes fcMist {
+  0%, 100% { transform: translate3d(-2%, 0, 0) scale(1.05); opacity: 0.85; }
+  50% { transform: translate3d(2%, -1%, 0) scale(1.12); opacity: 1; }
+}
+.fc-mist {
+  animation: fcMist 14s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* Floating fruit rain in the sky */
+@keyframes fcFruitFall {
+  0% {
+    transform: translate3d(0, 110vh, 0) rotate(0deg);
+    opacity: 0;
+  }
+  8% { opacity: 0.85; }
+  92% { opacity: 0.7; }
+  100% {
+    transform: translate3d(var(--drift, 20px), -18vh, 0) rotate(360deg);
+    opacity: 0;
+  }
+}
+.fc-float-fruit {
+  top: -8%;
+  animation-name: fcFruitFall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  filter: drop-shadow(0 4px 6px rgba(180, 90, 40, 0.18));
+  will-change: transform;
+  pointer-events: none;
+}
+
+@keyframes fcCloudDrift {
+  0% { transform: translateX(0); }
+  50% { transform: translateX(4%); }
+  100% { transform: translateX(0); }
+}
+.fc-cloud-drift {
+  animation: fcCloudDrift 28s ease-in-out infinite;
+}
+.fc-cloud-drift-slow {
+  animation: fcCloudDrift 42s ease-in-out infinite reverse;
+}
