@@ -39,14 +39,6 @@ export default function Splash({ onDone }: Props) {
         <div className="fc-splash-bar h-1.5 w-40 overflow-hidden rounded-full bg-white/50 ring-1 ring-[#efd5b8]">
           <div className="fc-splash-bar-fill h-full rounded-full bg-gradient-to-r from-[#ff7a8a] to-[#ffd23f]" />
         </div>
-        <p className="mt-2 text-sm leading-relaxed text-[#6b3f24]/90">
-          Created and Maintained by
-          <br />
-          <span className="text-base font-black text-[#4a2c1a]">Jenish Gondaliya</span>
-          <span className="ml-1.5 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#4a2c1a] text-[11px] font-black text-[#fff7e8]">
-            JG
-          </span>
-        </p>
       </div>
     </div>
   );

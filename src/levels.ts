@@ -29,10 +29,27 @@ export const CHAPTERS = [
 
 export const TOTAL = 500;
 
+function targetFor(n: number) {
+  // Keep the original climb through L50; after that grow steadier so L500 isn't absurd.
+  if (n <= 50) {
+    return Math.round((260 + n * 80 + Math.pow(n, 1.45) * 5) / 10) * 10;
+  }
+  return Math.round((5710 + (n - 50) * 90 + Math.pow(n - 50, 1.1) * 5) / 10) * 10;
+}
+
+function movesFor(n: number, target: number) {
+  // Early levels: generous floor (L11 ≈ 17). Later: scale with score so
+  // 51–500 aren't stuck at a flat 30 while targets keep rising.
+  const early = 14 + Math.floor((n - 1) / 3) + Math.floor(n / 20);
+  const ppmGoal = 105 + Math.pow(n, 0.6) * 2.2; // slowly harder late-game
+  const scaled = Math.round(target / ppmGoal);
+  return Math.max(early, scaled);
+}
+
 export const LEVELS: Level[] = Array.from({ length: TOTAL }, (_, i) => {
   const n = i + 1;
-  const target = Math.round((260 + n * 80 + Math.pow(n, 1.45) * 5) / 10) * 10;
-  const moves = 10 + Math.min(10, Math.floor(n / 20));
+  const target = targetFor(n);
+  const moves = movesFor(n, target);
   const kinds = n <= 3 ? 4 : n <= 8 ? 5 : 6;
   return { n, target, moves, kinds, name: `${NAMES[Math.floor(i / 10)]} ${(i % 10) + 1}` };
 });
