@@ -140,9 +140,9 @@ export default function App() {
     [cellRect],
   );
 
-  const finishLevel = useCallback((finalScore: number) => {
+  const finishLevel = useCallback((finalScore: number, movesLeft: number) => {
     const curLevel = levelRef.current;
-    const st = starsFor(curLevel, finalScore);
+    const st = starsFor(curLevel, finalScore, movesLeft);
     setEarned(st);
     if (st > 0) {
       sfx.win();
@@ -358,9 +358,10 @@ export default function App() {
         if (modeRef.current === 'level') {
           const currentScore = scoreRef.current;
           const currentTarget = levelRef.current.target;
-          if (currentScore >= currentTarget * 1.5 || movesRef.current <= 0) {
+          // End level as soon as target is reached OR moves run out
+          if (currentScore >= currentTarget || movesRef.current <= 0) {
             await sleep(180);
-            finishLevel(currentScore);
+            finishLevel(currentScore, movesRef.current);
           }
         }
       } catch (err) {
@@ -838,7 +839,7 @@ export default function App() {
                   <div className="text-3xl font-black tabular-nums text-[#e07a5f]">
                     {Math.round(score)}
                   </div>
-                  {mode === 'level' && (
+                  {mode === 'level' && score < level.target && (
                     <p className="text-sm text-[#9a6b45]">Target was {level.target}</p>
                   )}
                 </>

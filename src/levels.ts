@@ -84,11 +84,19 @@ export function saveProgress(p: Progress) {
   return p;
 }
 
-export function starsFor(level: Level, score: number) {
-  if (score >= level.target * 1.5) return 3;
-  if (score >= level.target * 1.25) return 2;
-  if (score >= level.target) return 1;
-  return 0;
+/**
+ * Stars based on moves remaining when the target was reached:
+ *  > 66% of moves left → ⭐⭐⭐
+ *  34–66% of moves left → ⭐⭐
+ *  ≤ 33% of moves left → ⭐
+ *  score < target (ran out of moves) → 0 (Game Over)
+ */
+export function starsFor(level: Level, score: number, movesLeft: number) {
+  if (score < level.target) return 0;
+  const pct = movesLeft / level.moves; // fraction of moves remaining
+  if (pct > 0.66) return 3;
+  if (pct > 0.33) return 2;
+  return 1;
 }
 
 export function totalStars(p: Progress) {
